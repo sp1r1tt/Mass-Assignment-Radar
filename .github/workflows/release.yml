@@ -39,19 +39,28 @@ jobs:
       - name: Build package
         run: pnpm build
 
+      # Копируем заранее сгенерированный public key в dist
+      - name: Copy public key
+        run: |
+          mkdir -p dist
+          cp keys/public.pem dist/public.pem
+
       - name: Sign package
         working-directory: dist
         env:
-          PRIVATE_KEY: ${{ secrets.PRIVATE }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
         run: |
           if [[ -z "$PRIVATE_KEY" ]]; then
-            echo "Set an ed25519 key as PRIVATE in GitHub Action secret to sign."
-          else
-            echo "$PRIVATE_KEY" > private_key.pem
-            openssl pkey -in private_key.pem -pubout -out public.pem
-            openssl pkeyutl -sign -inkey private_key.pem -out plugin_package.zip.sig -rawin -in plugin_package.zip
-            rm private_key.pem
+            echo "Set PRIVATE_KEY secret in GitHub Actions"
+            exit 1
           fi
+
+          echo "$PRIVATE_KEY" > private_key.pem
+          openssl pkeyutl -sign \
+            -inkey private_key.pem \
+            -out plugin_package.zip.sig \
+            -rawin -in plugin_package.zip
+          rm private_key.pem
 
       - name: Extract version
         id: meta
@@ -65,6 +74,9 @@ jobs:
         with:
           tag: ${{ steps.meta.outputs.version }}
           commit: ${{ github.sha }}
-          body: 'Release ${{ steps.meta.outputs.version }}'
-          artifacts: 'dist/plugin_package.zip,dist/plugin_package.zip.sig,dist/public.pem'
+          body: "Release ${{ steps.meta.outputs.version }}"
+          artifacts: |
+            dist/plugin_package.zip
+            dist/plugin_package.zip.sig
+            dist/public.pem
           immutableCreate: true
