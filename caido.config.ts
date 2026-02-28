@@ -12,7 +12,7 @@ export default defineConfig({
   id,
   name: "Mass Assignment Radar",
   description: "Mutation-based Scanner",
-  version: "1.1.1",
+  version: "1.2.1",
   author: {
     name: "sp1r1t",
     email: "sp1r1t2026@protonmail.com",

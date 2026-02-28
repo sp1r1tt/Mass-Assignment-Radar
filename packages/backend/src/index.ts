@@ -1386,21 +1386,37 @@ const listJsonRequests = async (
     return { kind: "Error", error: "limit must be <= 5000" };
   }
 
-  let query = sdk.requests.query().descending("req", "created_at");
-
   const trimmedFilter = filter.trim();
-  if (trimmedFilter.length > 0) {
-    query = query.filter(trimmedFilter);
-  }
+  const baseQuery = () => sdk.requests.query().descending("req", "created_at");
+  const proxyFilter = 'req.source.eq:"proxy"';
+  const finalFilter =
+    trimmedFilter.length > 0
+      ? `(${proxyFilter}) AND (${trimmedFilter})`
+      : proxyFilter;
 
   let results;
   try {
-    results = await query.execute();
+    results = await baseQuery().filter(finalFilter).execute();
   } catch (error) {
-    return {
-      kind: "Error",
-      error: `failed to execute query: ${String(error)}`,
-    };
+    if (String(error).toLowerCase().includes("invalid filter")) {
+      try {
+        if (trimmedFilter.length > 0) {
+          results = await baseQuery().filter(trimmedFilter).execute();
+        } else {
+          results = await baseQuery().execute();
+        }
+      } catch (error2) {
+        return {
+          kind: "Error",
+          error: `failed to execute query: ${String(error2)}`,
+        };
+      }
+    } else {
+      return {
+        kind: "Error",
+        error: `failed to execute query: ${String(error)}`,
+      };
+    }
   }
 
   const items = results.items
@@ -1463,6 +1479,7 @@ export type API = DefineAPI<{
   getRequestPreview: typeof buildRequestPreview;
   getRequestSummary: typeof getRequestSummary;
   saveRequestFromRaw: typeof saveRequestFromRaw;
+  mineCandidateFields: typeof mineCandidateFields;
 }>;
 
 export function init(sdk: SDK<API>) {
@@ -1473,4 +1490,172 @@ export function init(sdk: SDK<API>) {
   sdk.api.register("getRequestPreview", buildRequestPreview);
   sdk.api.register("getRequestSummary", getRequestSummary);
   sdk.api.register("saveRequestFromRaw", saveRequestFromRaw);
+  sdk.api.register("mineCandidateFields", mineCandidateFields);
 }
+
+type MineCandidatesInput = {
+  filter: string;
+  limit: number;
+  baselineRequestId?: string;
+};
+
+const mineCandidateFields = async (
+  sdk: SDK,
+  input: MineCandidatesInput,
+): Promise<
+  Result<
+    Array<{
+      path: string;
+      count: number;
+      sampleId: string;
+    }>
+  >
+> => {
+  if (input.limit < 1) {
+    return { kind: "Error", error: "limit must be >= 1" };
+  }
+  if (input.limit > 5000) {
+    return { kind: "Error", error: "limit must be <= 5000" };
+  }
+
+  // If a specific baseline is provided, mine ONLY from that request's response
+  if (input.baselineRequestId !== undefined) {
+    const trimmed = input.baselineRequestId.trim();
+    if (trimmed.length > 0) {
+      const saved = await sdk.requests.get(trimmed);
+      if (saved !== undefined) {
+        const resp = saved.response;
+        const text = responseToText(resp);
+        if (text === undefined) {
+          return {
+            kind: "Error",
+            error: "baseline request has no response",
+          };
+        }
+        const parsed = parseJsonValue(text);
+        if (parsed.kind === "Error") {
+          return parsed;
+        }
+        const noisyKeys = [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "timestamp",
+          "time",
+          "iat",
+          "exp",
+          "nonce",
+          "imageUrl",
+          "url",
+          "etag",
+        ];
+        const counts = new Map<string, number>();
+        const primitives = getAllPrimitives(parsed.value);
+        for (const path of Object.keys(primitives)) {
+          const isNoisy = noisyKeys.some(
+            (k) => path === k || path.endsWith(`.${k}`),
+          );
+          if (isNoisy) {
+            continue;
+          }
+          counts.set(path, (counts.get(path) ?? 0) + 1);
+        }
+        const items = Array.from(counts.entries())
+          .map(([path, count]) => ({ path, count, sampleId: trimmed }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 500);
+        return { kind: "Ok", value: items };
+      }
+    }
+  }
+
+  const trimmedFilter = input.filter.trim();
+  const baseQuery = () => sdk.requests.query().descending("req", "created_at");
+  const proxyFilter = 'req.source.eq:"proxy"';
+  const finalFilter =
+    trimmedFilter.length > 0
+      ? `(${proxyFilter}) AND (${trimmedFilter})`
+      : proxyFilter;
+
+  let results;
+  try {
+    results = await baseQuery().filter(finalFilter).execute();
+  } catch (error) {
+    if (String(error).toLowerCase().includes("invalid filter")) {
+      try {
+        if (trimmedFilter.length > 0) {
+          results = await baseQuery().filter(trimmedFilter).execute();
+        } else {
+          results = await baseQuery().execute();
+        }
+      } catch (error2) {
+        return {
+          kind: "Error",
+          error: `failed to execute query: ${String(error2)}`,
+        };
+      }
+    } else {
+      return {
+        kind: "Error",
+        error: `failed to execute query: ${String(error)}`,
+      };
+    }
+  }
+
+  const noisyKeys = [
+    "id",
+    "createdAt",
+    "updatedAt",
+    "timestamp",
+    "time",
+    "iat",
+    "exp",
+    "nonce",
+    "imageUrl",
+    "url",
+    "etag",
+  ];
+  const counts = new Map<string, number>();
+  const samples = new Map<string, string>();
+  for (const item of results.items.slice(0, input.limit)) {
+    const request = item.request;
+    if (isPluginGeneratedRequest(request)) {
+      continue;
+    }
+    const response = item.response;
+    if (response === undefined) {
+      continue;
+    }
+    const text = responseToText(response);
+    if (text === undefined) {
+      continue;
+    }
+    const parsed = parseJsonValue(text);
+    if (parsed.kind === "Error") {
+      continue;
+    }
+    const primitives = getAllPrimitives(parsed.value);
+    for (const path of Object.keys(primitives)) {
+      const isNoisy = noisyKeys.some(
+        (k) => path === k || path.endsWith(`.${k}`),
+      );
+      if (isNoisy) {
+        continue;
+      }
+      const prev = counts.get(path) ?? 0;
+      counts.set(path, prev + 1);
+      if (!samples.has(path)) {
+        samples.set(path, String(request.getId()));
+      }
+    }
+  }
+  const items = Array.from(counts.entries())
+    .map(([path, count]) => ({
+      path,
+      count,
+      sampleId: samples.get(path) ?? "",
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 500);
+  return { kind: "Ok", value: items };
+};

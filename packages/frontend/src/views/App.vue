@@ -76,6 +76,15 @@ const isLoadingRequests = ref(false);
 const pinnedRequests = ref<Array<RequestSummary>>([]);
 const requests = ref<Array<RequestSummary>>([]);
 const selectedRequest = ref<RequestSummary | undefined>(undefined);
+type CandidateItem = {
+  field: string;
+  matches: number;
+  sample: string;
+};
+const isMiningCandidates = ref(false);
+const isCandidatesOpen = ref(false);
+const candidateItems = ref<Array<CandidateItem>>([]);
+const selectedCandidateItems = ref<Array<CandidateItem>>([]);
 
 const isPreviewOpen = ref(false);
 const previewTitle = ref("");
@@ -335,6 +344,112 @@ const clearRequests = () => {
   requests.value = [];
   selectedRequest.value = undefined;
   errorMessage.value = undefined;
+};
+
+const canExtractCandidates = computed(() => !isMiningCandidates.value);
+
+const extractCandidates = async () => {
+  if (!canExtractCandidates.value) {
+    return;
+  }
+  isMiningCandidates.value = true;
+  errorMessage.value = undefined;
+  const trimmedId = requestId.value.trim();
+  const payload = {
+    filter: requestsFilter.value,
+    limit: requestsLimit.value,
+    baselineRequestId: trimmedId.length > 0 ? trimmedId : undefined,
+  };
+  const result = await sdk.backend.mineCandidateFields(payload);
+  if (result.kind === "Error") {
+    errorMessage.value = result.error;
+    sdk.window.showToast(result.error, { variant: "error" });
+    isMiningCandidates.value = false;
+    return;
+  }
+  candidateItems.value = result.value.map((r) => ({
+    field: r.path,
+    matches: r.count,
+    sample: r.sampleId,
+  }));
+  selectedCandidateItems.value = [];
+  isCandidatesOpen.value = true;
+  sdk.window.showToast(`Extracted ${result.value.length} candidates`, {
+    variant: "success",
+  });
+  isMiningCandidates.value = false;
+};
+
+const openCandidateSample = async (sample: string) => {
+  const id = sample.trim();
+  if (id.length === 0) {
+    return;
+  }
+  const res = await sdk.backend.getRequestPreview(id);
+  if (res.kind === "Error") {
+    sdk.window.showToast(res.error, { variant: "error" });
+    await copyId(id);
+    return;
+  }
+  openPreview(`Sample request ${id}`, res.value);
+};
+
+const isCandidateSelected = (field: string) => {
+  return selectedCandidateItems.value.some((i) => i.field === field);
+};
+
+const setCandidateSelected = (item: CandidateItem, selected: boolean) => {
+  const exists = selectedCandidateItems.value.some(
+    (i) => i.field === item.field,
+  );
+  if (selected) {
+    if (!exists) {
+      selectedCandidateItems.value = [...selectedCandidateItems.value, item];
+    }
+    return;
+  }
+  if (exists) {
+    selectedCandidateItems.value = selectedCandidateItems.value.filter(
+      (i) => i.field !== item.field,
+    );
+  }
+};
+
+const isAllCandidatesSelected = computed(() => {
+  if (candidateItems.value.length === 0) {
+    return false;
+  }
+  for (const item of candidateItems.value) {
+    if (!isCandidateSelected(item.field)) {
+      return false;
+    }
+  }
+  return true;
+});
+
+const toggleSelectAllCandidates = (selected: boolean) => {
+  if (selected) {
+    selectedCandidateItems.value = candidateItems.value.slice();
+    return;
+  }
+  selectedCandidateItems.value = [];
+};
+
+const addSelectedCandidates = () => {
+  const existing = parseCandidateFields(candidateFieldsText.value);
+  const set = new Set(existing);
+  for (const item of selectedCandidateItems.value) {
+    const f = item.field.trim();
+    if (f.length > 0) {
+      set.add(f);
+    }
+  }
+  candidateFieldsText.value = Array.from(set.values()).join("\n");
+  sdk.window.showToast(
+    `Added ${selectedCandidateItems.value.length} candidate fields`,
+    { variant: "success" },
+  );
+  isCandidatesOpen.value = false;
 };
 
 const useSelectedRequest = () => {
@@ -738,6 +853,90 @@ const deleteAllFindings = () => {
         </div>
       </div>
     </Dialog>
+    <Dialog
+      v-model:visible="isCandidatesOpen"
+      modal
+      :pt="{
+        root: {
+          class:
+            'w-[80vw] max-w-[72rem] overflow-hidden bg-surface-900 border border-surface-700',
+        },
+        header: {
+          class: 'hidden',
+        },
+        content: {
+          class: 'p-0 bg-surface-900',
+        },
+      }"
+    >
+      <div class="flex flex-col">
+        <div
+          class="flex items-center justify-between border-b border-surface-700 bg-surface-900 px-4 py-3"
+        >
+          <span class="text-base font-bold text-surface-0"
+            >Extract candidates</span
+          >
+          <Button
+            severity="secondary"
+            class="flex h-7 w-7 items-center justify-center rounded-full border-none !bg-surface-700 p-0 !text-surface-0 hover:!bg-surface-600"
+            @click="isCandidatesOpen = false"
+          >
+            <i class="fas fa-times text-[12px]"></i>
+          </Button>
+        </div>
+        <div class="p-4">
+          <DataTable
+            :value="candidateItems"
+            data-key="field"
+            striped-rows
+            :pt="{
+              tableContainer: { class: 'h-[60vh] overflow-auto' },
+            }"
+          >
+            <Column header-style="width:3rem">
+              <template #header>
+                <Checkbox
+                  :model-value="isAllCandidatesSelected"
+                  binary
+                  @update:modelValue="toggleSelectAllCandidates($event as boolean)"
+                />
+              </template>
+              <template #body="slotProps">
+                <Checkbox
+                  :model-value="isCandidateSelected(slotProps.data.field)"
+                  binary
+                  @update:modelValue="setCandidateSelected(slotProps.data, $event as boolean)"
+                />
+              </template>
+            </Column>
+            <Column field="field" header="Field" />
+            <Column field="matches" header="Matches" />
+            <Column field="sample" header="Sample" />
+            <Column header="Open">
+              <template #body="slotProps">
+                <Button
+                  label="Open"
+                  size="small"
+                  :disabled="slotProps.data.sample.trim().length === 0"
+                  @click="openCandidateSample(slotProps.data.sample)"
+                />
+              </template>
+            </Column>
+          </DataTable>
+        </div>
+        <div
+          class="flex justify-end gap-2 border-t border-surface-700 bg-surface-900 px-4 py-3"
+        >
+          <Button
+            label="Add selected"
+            size="small"
+            :disabled="selectedCandidateItems.length === 0"
+            @click="addSelectedCandidates"
+          ></Button>
+          <Button label="Close" @click="isCandidatesOpen = false"></Button>
+        </div>
+      </div>
+    </Dialog>
 
     <Card
       class="h-full"
@@ -811,6 +1010,14 @@ const deleteAllFindings = () => {
                     :disabled="!canClearRequests"
                     size="small"
                     @click="clearRequests"
+                  />
+                  <Button
+                    :label="
+                      isMiningCandidates ? 'Extracting…' : 'Extract candidates'
+                    "
+                    :disabled="!canExtractCandidates"
+                    size="small"
+                    @click="extractCandidates"
                   />
                 </div>
               </div>

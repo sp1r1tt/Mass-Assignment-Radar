@@ -39,9 +39,6 @@ Below is what each control does in the plugin page and how it affects the result
 - If empty: the latest requests are selected by the Limit.
 - Examples:
   - `req.method.eq:"POST"`
-  - `req.url.contains:"/api"`
-  - `req.header.content-type.contains:"application/json"`
-
 **Limit**
 - How many latest requests to consider (1–5000).
 - Larger values broaden selection but make loading slower.
@@ -52,6 +49,15 @@ Below is what each control does in the plugin page and how it affects the result
 
 **Use selected**
 - Copies the selected row’s ID into the Request ID field below.
+
+### Extract candidates
+
+- Mines JSON fields from responses in Caido history using the current HTTPQL filter and Limit. If Request ID is set, you can mine only from that baseline response.
+- Returns a table sorted by how often a field appears across responses:
+  - Field — fields from responses.
+  - Matches — how many responses contained this field.
+  - Sample — a sample Request ID to preview where the field was seen.
+- Use the top results as inputs for Candidate fields to broaden scan coverage.
 
 ### Requests table
 
