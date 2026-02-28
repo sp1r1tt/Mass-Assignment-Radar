@@ -435,6 +435,14 @@ const toggleSelectAllCandidates = (selected: boolean) => {
   selectedCandidateItems.value = [];
 };
 
+const onSelectAllCandidatesUpdate = (selected: boolean) => {
+  toggleSelectAllCandidates(selected);
+};
+
+const onCandidateUpdate = (item: CandidateItem, selected: boolean) => {
+  setCandidateSelected(item, selected);
+};
+
 const addSelectedCandidates = () => {
   const existing = parseCandidateFields(candidateFieldsText.value);
   const set = new Set(existing);
@@ -898,14 +906,16 @@ const deleteAllFindings = () => {
                 <Checkbox
                   :model-value="isAllCandidatesSelected"
                   binary
-                  @update:modelValue="toggleSelectAllCandidates($event as boolean)"
+                  @update:model-value="onSelectAllCandidatesUpdate($event)"
                 />
               </template>
               <template #body="slotProps">
                 <Checkbox
                   :model-value="isCandidateSelected(slotProps.data.field)"
                   binary
-                  @update:modelValue="setCandidateSelected(slotProps.data, $event as boolean)"
+                  @update:model-value="
+                    onCandidateUpdate(slotProps.data, $event)
+                  "
                 />
               </template>
             </Column>
