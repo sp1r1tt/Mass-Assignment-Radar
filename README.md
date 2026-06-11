@@ -4,6 +4,51 @@ A Caido plugin that helps detect mass assignment by automatically mutating JSON 
 
 Built for penetration testers and security researchers: you pick one baseline JSON request, set parameters, and run the scan. The plugin generates multiple mutated variants, sends them, and shows which response changes look suspicious.
 
+## Frontend
+
+- Framework: Vue 3
+- Language: TypeScript
+- UI library: PrimeVue
+- Caido UI integration: `@caido/primevue`
+- Styling: Tailwind CSS
+- Tailwind plugins:
+  - `tailwindcss-primeui`
+  - `@caido/tailwindcss`
+- Build tool: Vite
+- Frontend SDK: `@caido/sdk-frontend`
+
+The frontend is responsible for:
+
+- rendering the scanner UI;
+- showing dialogs, tables, filters, and previews;
+- interacting with the Caido frontend environment;
+- calling backend API methods exposed by the plugin.
+
+Main frontend location:
+
+- `packages/frontend`
+
+## Backend
+
+- Language: TypeScript
+- Runtime model: Caido backend plugin
+- Backend SDK: `@caido/sdk-backend`
+
+The backend is responsible for:
+
+- scanning and mutating requests;
+- querying Caido request history;
+- parsing request and response bodies;
+- mining candidate fields from JSON responses;
+- building request and response previews;
+- creating findings in Caido.
+
+Main backend location:
+
+- `packages/backend`
+
+
+
 ## What the scanner does
 
 1. Takes a baseline request from Caido by Request ID.
