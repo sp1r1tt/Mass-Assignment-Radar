@@ -1,3 +1,5 @@
+<img width="1381" height="912" alt="image" src="https://github.com/user-attachments/assets/a16c4bf2-fe88-4935-949b-1fc81cd36ddf" />
+
 # Mass Assignment Radar — Mutation-based Scanner
 
 A Caido plugin that helps detect mass assignment by automatically mutating JSON requests, comparing responses, and optionally confirming persistence of the result.
